@@ -50,9 +50,9 @@ Main input files:
   dose-response analyses, correlations, and random forest importance.
 - `phosphatase/phosphatase.R`: phosphatase analyses.
 - `TP/TP.R`: TP analyses.
-- `robust_sensitivity_analysis.R`: nested random-effects, StudyID-clustered
-  CR2 inference, assumed within-study correlation, and missing-variance
-  sensitivity analyses reported in Supplementary Table S1.
+- `robust_sensitivity_analysis.R`: StudyID random-intercept models, assumed
+  within-study sampling correlations, and missing-variance sensitivity
+  analyses reported in Supplementary Table S1.
 - `SEM/SEM.R`: exploratory observational piecewise SEMs.
 - `map/map.R`: geographic distribution map.
 
@@ -89,7 +89,6 @@ used by `robust_sensitivity_analysis.R`.
 ## Key outputs
 
 - `robustness_results/overall_sensitivity_results_all.csv`
-- `robustness_results/moderator_CR2_results_all.csv`
 - `robustness_results/session_info.txt`
 
 ## Software
@@ -97,8 +96,7 @@ used by `robust_sensitivity_analysis.R`.
 The sensitivity analysis was verified with:
 
 - R 4.5.2
-- metafor 5.0-1
-- clubSandwich 0.7.0
+- metafor 4.8-0
 - Matrix 1.7-4
 - nlme 3.1-168
 

@@ -1,6 +1,5 @@
 field,definition,unit_or_values
 study.id,Unique source-study identifier,integer or text identifier
-EffectID,Unique effect-size identifier assigned during robustness analysis,integer
 endpoint,Soil phosphorus endpoint,AP; Phosphatase; TP
 xc,Mean of the non-inoculated control group,original measurement unit
 xe,Mean of the microbial-inoculant treatment group,original measurement unit
