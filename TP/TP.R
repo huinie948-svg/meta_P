@@ -12,8 +12,6 @@ library(ggplot2)
 library(dplyr) #加载dplyr包
 library(ggpmisc) #加载ggpmisc包
 library(ggpubr)
-devtools::install_github("daniel1noble/orchaRd", ref = "main", force = TRUE)
-install.packages("ggpmisc")
 ap <- read.csv("TP.csv",fileEncoding = "latin1")
 # 查看数据结构，确认各列的数据类型
 str(ap)
@@ -43,11 +41,13 @@ ap_effects <-  escalc(
 # 重命名效应量列
 ap_effects <- ap_effects %>%
   rename(
-    lnRR = yi,      # 对数响应比
-    lnRR_var = vi    # lnRR的方差
+    yi_lnRR = yi,      # natural-log response ratio
+    vi_lnRR = vi       # sampling variance of lnRR
   )
-# 计算响应比 (RR)
-ap_effects$RR <- exp(ap_effects$lnRR)
+# Backward-compatible aliases used by the legacy plotting code.
+# In this project RR stores lnRR; it is not exponentiated.
+ap_effects$RR <- ap_effects$yi_lnRR
+ap_effects$Vi <- ap_effects$vi_lnRR
 # 查看结果
 head(ap_effects)
 write.csv(ap_effects, "ap_effects.csv")
@@ -639,6 +639,212 @@ print(significance_letters_sorted)
 
 
 
+
+
+
+### 8.5 Inoculum
+ap_Inoculum <- subset(ap, inoculum %in% c("bacteria yes","fungi yes", "amf yes", "amf inoculum yes", "mix yes"))
+#
+ap_Inoculum$inoculum <- droplevels(factor(ap_Inoculum$inoculum))
+# The number of Observations and StudyID
+group_summary <- ap_Inoculum %>%
+  group_by(inoculum) %>%
+  summarise(
+    Observations = n(),                   
+    Unique_StudyID = n_distinct(study.id)  
+  )
+print(group_summary)
+#A tibble: 5 × 3
+# inoculum         Observations Unique_StudyID
+# <fct>                   <int>          <int>
+#   1 amf inoculum yes            8              4
+# 2 amf yes                    44             11
+# 3 bacteria yes               96             28
+# 4 fungi yes                  26              7
+# 5 mix yes                     7              3
+
+overall_model_ap_Inoculum <- rma.mv(yi = RR, V = Vi, mods = ~ 0 + inoculum, random = ~ 1 | study.id, data = ap_Inoculum, method = "REML")
+# QM and p value
+summary(overall_model_ap_Inoculum)
+# Multivariate Meta-Analysis Model (k = 181; method: REML)
+# 
+# logLik       Deviance            AIC            BIC           AICc   
+# -2016886.3051   4033772.6101   4033784.6101   4033803.6330   4033785.1072   
+# 
+# Variance Components:
+#   
+#   estim    sqrt  nlvls  fixed    factor 
+# sigma^2    0.0325  0.1803     47     no  study.id 
+# 
+# Test for Residual Heterogeneity:
+#   QE(df = 176) = 4544443.6715, p-val < .0001
+# 
+# Test of Moderators (coefficients 1:5):
+#   QM(df = 5) = 8.2379, p-val = 0.1436
+# 
+# Model Results:
+#   
+#   estimate      se     zval    pval    ci.lb   ci.ub    
+# inoculumamf inoculum yes    0.0046  0.0406   0.1142  0.9091  -0.0749  0.0842    
+# inoculumamf yes             0.0097  0.0613   0.1587  0.8739  -0.1103  0.1298    
+# inoculumbacteria yes       -0.0236  0.0350  -0.6754  0.4994  -0.0921  0.0449    
+# inoculumfungi yes           0.1664  0.0690   2.4127  0.0158   0.0312  0.3015  * 
+#   inoculummix yes            -0.0305  0.0410  -0.7430  0.4575  -0.1109  0.0499    
+# 
+# ---
+#   Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
+
+
+# Extract model coefficients and covariance matrix
+p6 <- orchard_plot(overall_model_ap_Inoculum,
+                   mod = "inoculum",          # 截距模型用 "1"
+                   group = "study.id",
+                   xlab = "Effect size(lnRR)",
+                   trunk.size = 0.5,        # 组均值的置信区间粗细
+                   branch.size = 2,         # 预测区间粗细
+                   angle = 0,
+                   legend.pos = "none"      # 关闭右上角 Precision(1/SE) 图例
+) +
+  theme(
+    panel.grid.major = element_blank(),   # 去掉主网格
+    panel.grid.minor = element_blank(),   # 去掉次网格
+    panel.background = element_blank(),   # 透明背景
+    panel.border = element_rect(color = "black", fill = NA, linewidth = 0.6) # 保留边框（可选）
+  )
+p6
+coef_rotation <- coef(overall_model_ap_Inoculum)
+vcov_rotation <- vcov(overall_model_ap_Inoculum)
+# 定义多重比较函数
+pairwise_comparison <- function(coefs, vcovs, group1, group2) {
+  diff <- coefs[group1] - coefs[group2]
+  se_diff <- sqrt(vcovs[group1, group1] + vcovs[group2, group2] - 2 * vcovs[group1, group2])
+  z <- diff / se_diff
+  2 * (1 - pnorm(abs(z)))
+}
+
+group_names <- names(coef_rotation)
+
+# p matrix (raw)
+p_matrix <- matrix(1, nrow = length(group_names), ncol = length(group_names),
+                   dimnames = list(group_names, group_names))
+
+for (i in seq_along(group_names)) {
+  for (j in seq_along(group_names)) {
+    if (i < j) {
+      p_matrix[i, j] <- pairwise_comparison(coef_rotation, vcov_rotation, group_names[i], group_names[j])
+      p_matrix[j, i] <- p_matrix[i, j]
+    }
+  }
+}
+diag(p_matrix) <- 1
+
+# ---- p-adjust on upper triangle (non-NA only) ----
+idx <- which(upper.tri(p_matrix) & !is.na(p_matrix), arr.ind = TRUE)
+p_raw <- p_matrix[idx]
+p_adj <- p.adjust(p_raw, method = "holm")   # 或 "BH"/"bonferroni"
+
+p_matrix_adj <- p_matrix
+for (k in seq_len(nrow(idx))) {
+  i <- idx[k, 1]; j <- idx[k, 2]
+  p_matrix_adj[i, j] <- p_adj[k]
+  p_matrix_adj[j, i] <- p_adj[k]
+}
+diag(p_matrix_adj) <- 1
+
+# ---- sort by effect size (safe) ----
+rn <- rownames(p_matrix_adj)
+sorted_group_names <- rn[order(coef_rotation[rn], decreasing = TRUE, na.last = TRUE)]
+p_matrix_adj_sorted <- p_matrix_adj[sorted_group_names, sorted_group_names, drop = FALSE]
+
+# letters
+letters <- multcompLetters(p_matrix_adj_sorted)$Letters
+print(letters)
+# inoculumfungi yes          inoculumamf yes inoculumamf inoculum yes     inoculumbacteria yes          inoculummix yes 
+# "a"                     "a"                      "a"                      "a"                      "a" 
+
+
+
+
+
+
+
+
+
+
+### 8.6 Inoculant.quantity
+ap_Inoculant.quantity <- subset(ap, inoculant.quantity %in% c("yes", "no"))
+#
+ap_Inoculant.quantity$inoculant.quantity <- droplevels(factor(ap_Inoculant.quantity$inoculant.quantity))
+# The number of Observations and StudyID
+group_summary <- ap_Inoculant.quantity %>%
+  group_by(inoculant.quantity) %>%
+  summarise(
+    Observations = n(),                   
+    Unique_StudyID = n_distinct(study.id)  
+  )
+print(group_summary)
+# # A tibble: 2 × 3
+# inoculant.quantity Observations Unique_StudyID
+# <fct>                     <int>          <int>
+#   1 no                         1072            149
+# 2 yes                         634             62
+
+overall_model_ap_Inoculant.quantity <- rma.mv(yi = RR, V = Vi, mods = ~ 0 + inoculant.quantity, random = ~ 1 | study.id, data = ap_Inoculant.quantity, method = "REML")
+# QM and p value
+summary(overall_model_ap_Inoculant.quantity)
+# Multivariate Meta-Analysis Model (k = 1706; method: REML)
+# 
+# logLik      Deviance           AIC           BIC          AICc   
+# -154803.1715   309606.3430   309612.3430   309628.6652   309612.3571   
+# 
+# Variance Components:
+#   
+#   estim    sqrt  nlvls  fixed    factor 
+# sigma^2    0.0852  0.2919    197     no  study.id 
+# 
+# Test for Residual Heterogeneity:
+#   QE(df = 1704) = 620288.6887, p-val < .0001
+# 
+# Test of Moderators (coefficients 1:2):
+#   QM(df = 2) = 14531.7729, p-val < .0001
+# 
+# Model Results:
+#   
+#   estimate      se     zval    pval   ci.lb   ci.ub      
+# inoculant.quantityno     0.3158  0.0220  14.3775  <.0001  0.2727  0.3588  *** 
+#   inoculant.quantityyes    0.1302  0.0220   5.9203  <.0001  0.0871  0.1733  *** 
+#   
+#   ---
+#   Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
+# Extract model coefficients and covariance matrix
+coef_rotation <- coef(overall_model_ap_Inoculant.quantity)
+vcov_rotation <- vcov(overall_model_ap_Inoculant.quantity)
+# define
+pairwise_comparison <- function(coefs, vcovs, group1, group2) {
+  diff <- coefs[group1] - coefs[group2]  # 
+  se_diff <- sqrt(vcovs[group1, group1] + vcovs[group2, group2] - 2 * vcovs[group1, group2]) 
+  z <- diff / se_diff  # Z 
+  p <- 2 * (1 - pnorm(abs(z)))  # 
+  return(p)
+}
+# Compare
+group_names <- names(coef_rotation)
+p_matrix <- matrix(NA, nrow = length(group_names), ncol = length(group_names),
+                   dimnames = list(group_names, group_names))
+for (i in seq_along(group_names)) {
+  for (j in seq_along(group_names)) {
+    if (i < j) {
+      p_matrix[i, j] <- pairwise_comparison(coef_rotation, vcov_rotation, group_names[i], group_names[j])
+    }
+  }
+}
+# Convert to letter
+p_matrix[lower.tri(p_matrix)] <- t(p_matrix)[lower.tri(p_matrix)] 
+significance_letters <- multcompLetters(p_matrix)$Letters
+# Output
+print(significance_letters)
+# inoculant.quantityno inoculant.quantityyes 
+# "a"                   "a" 
 
 
 
@@ -1353,6 +1559,111 @@ print(significance_letters_sorted)
 
 
 
+### 8.11 Experimental.periods
+ap_Experimental.periods <- subset(ap, experimental.periods %in% c("Short-term", "Medium-term", "Long-term"))
+#
+ap_Experimental.periods$experimental.periods <- droplevels(factor(ap_Experimental.periods$experimental.periods))
+# The number of Observations and StudyID
+group_summary <-ap_Experimental.periods %>%
+  group_by(experimental.periods) %>%
+  summarise(
+    Observations = n(),                   
+    Unique_StudyID = n_distinct(study.id)  
+  )
+print(group_summary)
+# # A tibble: 3 × 3
+# experimental.periods Observations Unique_StudyID
+# <fct>                       <int>          <int>
+#   1 Long-term                      20              4
+# 2 Medium-term                    44             14
+# 3 Short-term                    107             26
+
+overall_model_Experimental.periods <- rma.mv(yi = RR, V = Vi, mods = ~ 0 + experimental.periods, random = ~ 1 | study.id, data = ap_Experimental.periods, method = "REML")
+# QM and p value
+summary(overall_model_Experimental.periods)
+# Multivariate Meta-Analysis Model (k = 171; method: REML)
+# 
+# logLik       Deviance            AIC            BIC           AICc   
+# -2016897.7564   4033795.5129   4033803.5129   4033816.0087   4033803.7583   
+# 
+# Variance Components:
+#   
+#   estim    sqrt  nlvls  fixed    factor 
+# sigma^2    0.0338  0.1838     44     no  study.id 
+# 
+# Test for Residual Heterogeneity:
+#   QE(df = 168) = 4060551.3881, p-val < .0001
+# 
+# Test of Moderators (coefficients 1:3):
+#   QM(df = 3) = 0.5455, p-val = 0.9088
+# 
+# Model Results:
+#   
+#   estimate      se     zval    pval    ci.lb   ci.ub    
+# experimental.periodsLong-term     -0.0162  0.0998  -0.1622  0.8712  -0.2118  0.1794    
+# experimental.periodsMedium-term    0.0296  0.0538   0.5493  0.5828  -0.0759  0.1350    
+# experimental.periodsShort-term     0.0174  0.0373   0.4663  0.6410  -0.0557  0.0905    
+# 
+# ---
+#   Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
+
+p14 <- orchard_plot(overall_model_Experimental.periods,
+                    mod = "experimental.periods",          # 截距模型用 "1"
+                    group = "study.id",
+                    xlab = "Effect size(lnRR)",
+                    trunk.size = 0.5,        # 组均值的置信区间粗细
+                    branch.size = 2,         # 预测区间粗细
+                    angle = 0,
+                    legend.pos = "none"      # 关闭右上角 Precision(1/SE) 图例
+) +
+  theme(
+    panel.grid.major = element_blank(),   # 去掉主网格
+    panel.grid.minor = element_blank(),   # 去掉次网格
+    panel.background = element_blank(),   # 透明背景
+    panel.border = element_rect(color = "black", fill = NA, linewidth = 0.6) # 保留边框（可选）
+  )
+p14
+coef_rotation <- coef(overall_model_Experimental.periods)
+vcov_rotation <- vcov(overall_model_Experimental.periods)
+# 定义多重比较函数
+pairwise_comparison <- function(coefs, vcovs, group1, group2) {
+  diff <- coefs[group1] - coefs[group2]
+  se_diff <- sqrt(vcovs[group1, group1] + vcovs[group2, group2] - 2 * vcovs[group1, group2])
+  z <- diff / se_diff
+  p <- 2 * (1 - pnorm(abs(z)))
+  return(p)
+}
+
+# 比较
+group_names <- names(coef_rotation)
+p_matrix <- matrix(NA, nrow = length(group_names), ncol = length(group_names),
+                   dimnames = list(group_names, group_names))
+for (i in seq_along(group_names)) {
+  for (j in seq_along(group_names)) {
+    if (i < j) {
+      p_matrix[i, j] <- pairwise_comparison(coef_rotation, vcov_rotation, group_names[i], group_names[j])
+    }
+  }
+}
+p_matrix[lower.tri(p_matrix)] <- t(p_matrix)[lower.tri(p_matrix)]
+
+# 现在，我们按照效应大小（系数值）对组进行排序（从大到小）
+effect_sizes <- coef_rotation
+# 按效应大小从大到小排序
+sorted_indices <- order(effect_sizes, decreasing = TRUE)
+sorted_group_names <- group_names[sorted_indices]
+
+# 重新排列p值矩阵，按照效应大小顺序
+p_matrix_sorted <- p_matrix[sorted_group_names, sorted_group_names]
+
+# 现在，使用排序后的p值矩阵计算字母
+significance_letters_sorted <- multcompLetters(p_matrix_sorted)$Letters
+
+# 输出
+print(significance_letters_sorted)
+# experimental.periodsMedium-term  experimental.periodsShort-term   experimental.periodsLong-term 
+# "a"                             "a"                             "a" 
+
 
 
 
@@ -1913,7 +2224,7 @@ Bacteria_cfu_root <-read.csv(file.choose())
 Bacteria_cfu_root$Wr <- 1 / Bacteria_cfu_root$Vi
 ##Finalinoculationquantification
 mdBacteria_cfu_root<-lmer(RR~ scale(experimental.duration)+scale(final.inoculation.amount)+ (1|study.id), weights=Wr, data=Bacteria_cfu_root)
-anova(mdBacteria_cfu_plant)
+anova(mdBacteria_cfu_root)
 r.squaredGLMM(mdFinalinoculationquantification)
 mdlBacteria_cfu_root<-lmer(RR~ scale(experimental.duration)+scale(log10)+ (1|study.id), weights=Wr, data=Bacteria_cfu_root)
 anova(mdlBacteria_cfu_root)
@@ -2097,8 +2408,8 @@ AMF_propagules_ha_soil$Wr <- 1 / AMF_propagules_ha_soil$Vi
 mdAMF_propagules_ha_soil<-lmer(RR~ scale(experimental.duration)+scale(final.inoculation.amount)+ (1|study.id), weights=Wr, data=AMF_propagules_ha_soil)
 anova(mdAMF_propagules_ha_soil)
 r.squaredGLMM(mdFinalinoculationquantification)
-mdlFungi_cfu_kg_soil<-lmer(RR~ scale(experimental.duration)+scale(log10)+ (1|study.id), weights=Wr, data=Fungi_cfu_kg_soil)
-anova(mdlFungi_cfu_kg_soil)
+mdlAMF_propagules_ha_soil<-lmer(RR~ scale(experimental.duration)+scale(log10)+ (1|study.id), weights=Wr, data=AMF_propagules_ha_soil)
+anova(mdlAMF_propagules_ha_soil)
 
 
 

@@ -1,0 +1,20 @@
+field,definition,unit_or_values
+study.id,Unique source-study identifier,integer or text identifier
+EffectID,Unique effect-size identifier assigned during robustness analysis,integer
+endpoint,Soil phosphorus endpoint,AP; Phosphatase; TP
+xc,Mean of the non-inoculated control group,original measurement unit
+xe,Mean of the microbial-inoculant treatment group,original measurement unit
+sc,Standard deviation of the control group,original measurement unit
+se,Standard deviation of the treatment group,original measurement unit
+nc,Control-group sample size,count
+ne,Treatment-group sample size,count
+yi_lnRR,Natural logarithm of the response ratio,ln(mean treatment / mean control)
+vi_lnRR,Sampling variance of yi_lnRR,variance
+RR,Legacy alias for yi_lnRR; not the exponentiated response ratio,lnRR
+Vi,Legacy alias for vi_lnRR,variance
+inoculant.type,Microbial inoculant category,bacteria; fungi; AMF; mix
+experimental.type,Experimental setting,greenhouse; field
+stress,Broad operational stress category,yes; no
+fertilizer,Broad operational amendment category,yes; no
+extraction.part,Soil sampling compartment,rhizosphere; bulk soil
+experimental.duration,Time from inoculation to sampling,as reported and harmonized in source data

@@ -11,7 +11,7 @@ world.map <- ggplot() +
   coord_quickmap() +
   theme_void()
 
-df <- read.csv(file.choose(), stringsAsFactors = FALSE)
+df <- read.csv("map.csv", stringsAsFactors = FALSE)
 
 # 清理经纬度，避免负号读错
 df$Longitude <- as.numeric(gsub("[−–]", "-", df$Longitude))

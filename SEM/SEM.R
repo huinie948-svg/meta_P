@@ -24,10 +24,12 @@ t2_i <- t2 %>%
   filter(study_id %in% id_inter) %>%
   mutate(source_table = "table2")
 
-merged <- merged %>% select(all_of(front), everything())
+merged <- bind_rows(t1_i, t2_i)
+front <- c("study_id", "source_table")
+merged <- merged %>% select(any_of(front), everything())
 
 # 6) 输出
-write_csv(t1_i, "merged_intersection_by_study_id.csv")
+write_csv(merged, "merged_intersection_by_study_id.csv")
 
 
 ################################################  piecewiseSEM
@@ -212,7 +214,7 @@ m5_bio <- lme(
 sem5_mod <- psem(m5_ap, m5_phos, m5_bio)
 summary(sem5_mod)                        # Fisher's C、路径显著性等
 coefs(sem5_mod, standardize = "scale")   # 标准化路径系数（推荐看这个）
-rsquared(sem4_mod)  
+rsquared(sem5_mod)  
 names(sem_data)
 
 
